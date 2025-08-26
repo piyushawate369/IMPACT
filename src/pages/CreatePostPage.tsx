@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Camera, Upload, X } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { supabase, debugSupabaseConfig } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
 const categories = [
@@ -24,6 +24,50 @@ export default function CreatePostPage() {
   const { user, userProfile } = useAuth()
   const navigate = useNavigate()
 
+  // Test storage bucket configuration
+  useEffect(() => {
+    const testStorageBucket = async () => {
+      try {
+        debugSupabaseConfig()
+        console.log('Testing Supabase configuration...')
+        console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL)
+        console.log('Supabase Anon Key exists:', !!import.meta.env.VITE_SUPABASE_ANON_KEY)
+        
+        // Test if we can access the storage bucket
+        console.log('Testing storage bucket access...')
+        const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets()
+        
+        if (bucketsError) {
+          console.error('Error listing buckets:', bucketsError)
+        } else {
+          console.log('Available buckets:', buckets)
+          const postsBucket = buckets?.find(bucket => bucket.name === 'posts')
+          if (postsBucket) {
+            console.log('Posts bucket found:', postsBucket)
+            console.log('Posts bucket public:', postsBucket.public)
+            
+            // Test listing files in the posts bucket
+            const { data: files, error: filesError } = await supabase.storage
+              .from('posts')
+              .list()
+            
+            if (filesError) {
+              console.error('Error listing files in posts bucket:', filesError)
+            } else {
+              console.log('Files in posts bucket:', files)
+            }
+          } else {
+            console.error('Posts bucket not found!')
+          }
+        }
+      } catch (error) {
+        console.error('Error testing storage:', error)
+      }
+    }
+
+    testStorageBucket()
+  }, [])
+
   // Show loading if user profile is not loaded yet
   if (!userProfile) {
     return (
@@ -40,13 +84,44 @@ export default function CreatePostPage() {
 
   const handleMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    console.log('=== FILE SELECTION DEBUG ===')
+    console.log('Selected file:', file)
+    
     if (file) {
+      console.log('File details:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
+      })
+      
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm']
+      if (!allowedTypes.includes(file.type)) {
+        alert(`Invalid file type: ${file.type}. Please select an image or video file.`)
+        return
+      }
+      
+      // Validate file size
+      const maxSize = 10 * 1024 * 1024 // 10MB
+      if (file.size > maxSize) {
+        alert('File too large. Please select a file smaller than 10MB.')
+        return
+      }
+      
       setMediaFile(file)
       const reader = new FileReader()
       reader.onload = (e) => {
+        console.log('File preview generated successfully')
         setMediaPreview(e.target?.result as string)
       }
+      reader.onerror = (e) => {
+        console.error('Error reading file:', e)
+        alert('Error reading file. Please try again.')
+      }
       reader.readAsDataURL(file)
+    } else {
+      console.log('No file selected')
     }
   }
 
@@ -56,19 +131,106 @@ export default function CreatePostPage() {
   }
 
   const uploadMedia = async (file: File) => {
-    const fileExt = file.name.split('.').pop()
-    const fileName = `${userProfile.id}/post_${Date.now()}.${fileExt}`
+    console.log('=== UPLOAD DEBUG START ===')
+    console.log('File object:', file)
+    console.log('File name:', file.name)
+    console.log('File size:', file.size)
+    console.log('File type:', file.type)
+    console.log('File lastModified:', file.lastModified)
     
+    // Basic validation
+    if (!file || file.size === 0) {
+      throw new Error('Invalid file: file is empty or null')
+    }
+
+    // Check file size (10MB limit)
+    const maxSize = 10 * 1024 * 1024 // 10MB
+    if (file.size > maxSize) {
+      throw new Error('File too large: maximum size is 10MB')
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm']
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error(`Invalid file type: ${file.type}. Allowed types: ${allowedTypes.join(', ')}`)
+    }
+
+    // Ensure we have a valid file extension
+    const fileExt = file.name.split('.').pop()?.toLowerCase()
+    if (!fileExt || !['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm'].includes(fileExt)) {
+      throw new Error(`Invalid file extension: ${fileExt}`)
+    }
+
+    // Sanitize filename (avoid spaces and special chars)
+    const safeBaseName = `post_${Date.now()}`
+    const fileName = `${userProfile.id}/${safeBaseName}.${fileExt}`
+    
+    console.log('Generated fileName:', fileName)
+    console.log('User profile ID:', userProfile.id)
+    
+    // Proceed to upload directly; if storage isn't configured, upload will return a clear error
+    console.log('Proceeding to upload without explicit bucket pre-check')
+    
+    // Upload raw bytes (ArrayBuffer) to avoid multipart wrapper corruption
+    console.log('Starting upload to Supabase (ArrayBuffer)...')
+    const fileBuffer = await file.arrayBuffer()
     const { data, error } = await supabase.storage
       .from('posts')
-      .upload(fileName, file)
+      .upload(fileName, fileBuffer, {
+        contentType: file.type,
+        cacheControl: '3600',
+        upsert: false // Don't overwrite existing files
+      })
 
-    if (error) throw error
+    if (error) {
+      console.error('Upload error:', error)
+      
+      // Provide more specific error messages
+      if (error.message?.includes('row-level security')) {
+        throw new Error('Storage access denied. Please try logging out and back in.')
+      } else if (error.message?.includes('bucket')) {
+        throw new Error('Storage not configured properly. Please contact support.')
+      } else if (error.message?.includes('size')) {
+        throw new Error('File is too large. Please select a smaller file.')
+      } else {
+        throw new Error(`Upload failed: ${error.message || 'Unknown error'}`)
+      }
+    }
 
+    console.log('Upload successful, data:', data)
+
+    // Get public URL
+    console.log('Getting public URL...')
     const { data: urlData } = supabase.storage
       .from('posts')
       .getPublicUrl(fileName)
 
+    console.log('Public URL data:', urlData)
+    console.log('Public URL:', urlData.publicUrl)
+    
+    // Verify the URL is accessible
+    console.log('Verifying URL accessibility...')
+    try {
+      const response = await fetch(urlData.publicUrl, { 
+        method: 'HEAD',
+        cache: 'no-cache' // Don't use cached version
+      })
+      console.log('URL verification response:', response)
+      console.log('Response status:', response.status)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+      
+      if (!response.ok) {
+        console.warn('Warning: Uploaded file may not be accessible:', response.status)
+        // Don't throw error, just log warning
+      } else {
+        console.log('URL verification successful!')
+      }
+    } catch (testError) {
+      console.error('URL verification failed:', testError)
+      // Don't throw error, just log warning
+    }
+    
+    console.log('=== UPLOAD DEBUG END ===')
     return urlData.publicUrl
   }
 
@@ -83,11 +245,35 @@ export default function CreatePostPage() {
       let mediaType: 'image' | 'video' = 'image'
 
       if (mediaFile) {
-        mediaUrl = await uploadMedia(mediaFile)
-        mediaType = mediaFile.type.startsWith('video/') ? 'video' : 'image'
+        try {
+          mediaUrl = await uploadMedia(mediaFile)
+          mediaType = mediaFile.type.startsWith('video/') ? 'video' : 'image'
+          
+          // Validate the media URL
+          if (!mediaUrl || !mediaUrl.startsWith('http')) {
+            console.error('Invalid media URL generated:', mediaUrl)
+            throw new Error('Failed to generate valid media URL')
+          }
+        } catch (uploadError) {
+          console.error('Media upload failed:', uploadError)
+          alert(`Media upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`)
+          setLoading(false)
+          return
+        }
       }
 
+      console.log('=== POST CREATION DEBUG ===')
+      console.log('Creating post with data:', {
+        user_id: userProfile.id,
+        caption,
+        category: category === 'Other' ? customCategory : category,
+        media_url: mediaUrl,
+        media_type: mediaType,
+        points_awarded: 10
+      })
+
       // Create post
+      console.log('Inserting post into database...')
       const { data: postData, error: postError } = await supabase
         .from('posts')
         .insert({
@@ -101,7 +287,14 @@ export default function CreatePostPage() {
         .select()
         .single()
 
-      if (postError) throw postError
+      if (postError) {
+        console.error('Post creation error:', postError)
+        throw postError
+      }
+
+      console.log('Post created successfully:', postData)
+      console.log('Post media_url in database:', postData.media_url)
+      console.log('=== POST CREATION DEBUG END ===')
 
       // Create action for points
       const { error: actionError } = await supabase
@@ -119,7 +312,8 @@ export default function CreatePostPage() {
       navigate('/home')
     } catch (error) {
       console.error('Error creating post:', error)
-      alert('Failed to create post. Please try again.')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      alert(`Failed to create post: ${errorMessage}`)
     } finally {
       setLoading(false)
     }

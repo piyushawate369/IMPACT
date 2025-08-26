@@ -216,3 +216,9 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION handle_new_user();
+
+-- Ensure storage buckets exist and are public
+INSERT INTO storage.buckets (id, name, public) VALUES 
+  ('profiles', 'profiles', true),
+  ('posts', 'posts', true)
+ON CONFLICT (id) DO UPDATE SET public = true;

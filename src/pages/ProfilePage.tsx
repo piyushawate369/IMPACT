@@ -340,17 +340,28 @@ export default function ProfilePage() {
                       src={post.media_url}
                       alt={post.caption}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      onError={(e) => {
+                        console.error('Failed to load image in profile:', post.media_url);
+                        e.currentTarget.style.display = 'none';
+                        // Show fallback
+                        const fallback = e.currentTarget.parentElement?.querySelector('.image-fallback');
+                        if (fallback) {
+                          (fallback as HTMLElement).style.display = 'flex';
+                        }
+                      }}
                     />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <div className="text-center">
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                          <Award className="w-6 h-6 text-green-600" />
-                        </div>
-                        <p className="text-sm text-gray-600 font-medium">{post.category}</p>
+                  ) : null}
+                  <div className={`image-fallback ${post.media_url ? 'hidden' : 'flex'} w-full h-full items-center justify-center`}>
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <Award className="w-6 h-6 text-green-600" />
                       </div>
+                      <p className="text-sm text-gray-600 font-medium">{post.category}</p>
+                      {post.media_url && (
+                        <p className="text-xs text-gray-400 mt-1">Image unavailable</p>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
                 <button
                   onClick={() => handleDeletePost(post.id)}

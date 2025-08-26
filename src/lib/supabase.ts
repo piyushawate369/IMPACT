@@ -28,6 +28,16 @@ export const supabase = createClient(
 // Export configuration status for components to check
 export const isSupabaseConfigured = hasValidConfig
 
+// Debug function to test Supabase configuration
+export const debugSupabaseConfig = () => {
+  console.log('=== Supabase Configuration Debug ===')
+  console.log('Supabase URL:', supabaseUrl)
+  console.log('Supabase Anon Key exists:', !!supabaseAnonKey)
+  console.log('Has valid config:', hasValidConfig)
+  console.log('Full URL:', supabaseUrl || 'https://placeholder.supabase.co')
+  console.log('=====================================')
+}
+
 export type Database = {
   public: {
     Tables: {

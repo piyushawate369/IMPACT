@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Storage Buckets - IMPACT App</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2563eb;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .step {
+            background: #f8fafc;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border-left: 4px solid #2563eb;
+        }
+        .step h3 {
+            color: #1e40af;
+            margin-top: 0;
+        }
+        .code-block {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 15px 0;
+        }
+        .button {
+            background: #2563eb;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: background 0.2s;
+        }
+        .button:hover {
+            background: #1d4ed8;
+        }
+        .success {
+            background: #dcfce7;
+            border-left-color: #16a34a;
+            color: #166534;
+        }
+        .warning {
+            background: #fef3c7;
+            border-left-color: #d97706;
+            color: #92400e;
+        }
+        .error {
+            background: #fee2e2;
+            border-left-color: #dc2626;
+            color: #991b1b;
+        }
+        .copy-btn {
+            background: #6b7280;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .copy-btn:hover {
+            background: #4b5563;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Fix Storage Buckets Issue</h1>
+        
+        <div class="step warning">
+            <h3>⚠️ Problem Identified</h3>
+            <p>Your Supabase project is missing the required storage buckets. This is why you're getting the "Storage bucket not configured" error when trying to upload images.</p>
+        </div>
+
+        <div class="step">
+            <h3>📋 Step 1: Open Supabase Dashboard</h3>
+            <p>Click the button below to open your Supabase project:</p>
+            <button class="button" onclick="openSupabase()">Open Supabase Dashboard</button>
+        </div>
+
+        <div class="step">
+            <h3>📝 Step 2: Copy the SQL Script</h3>
+            <p>Copy this SQL script to create the storage buckets:</p>
+            <div class="code-block" id="sqlScript">
+-- Create Storage Buckets for IMPACT App
+-- Run this script in your Supabase SQL Editor
+
+-- First, let's check what buckets exist
+SELECT * FROM storage.buckets;
+
+-- Create posts bucket for storing post media
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) 
+VALUES (
+  'posts', 
+  'posts', 
+  true, 
+  10485760, -- 10MB
+  ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm']
+) ON CONFLICT (id) DO UPDATE SET 
+  public = true,
+  file_size_limit = 10485760,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'];
+
+-- Create profiles bucket for storing profile photos
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) 
+VALUES (
+  'profiles', 
+  'profiles', 
+  true, 
+  5242880, -- 5MB
+  ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+) ON CONFLICT (id) DO UPDATE SET 
+  public = true,
+  file_size_limit = 5242880,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+
+-- Verify buckets were created
+SELECT * FROM storage.buckets WHERE name IN ('posts', 'profiles');
+
+-- Set up storage policies for posts bucket
+CREATE POLICY IF NOT EXISTS "Users can upload post media"
+  ON storage.objects
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'posts' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY IF NOT EXISTS "Post media is publicly viewable"
+  ON storage.objects
+  FOR SELECT
+  TO public
+  USING (bucket_id = 'posts');
+
+CREATE POLICY IF NOT EXISTS "Users can update their own post media"
+  ON storage.objects
+  FOR UPDATE
+  TO authenticated
+  USING (bucket_id = 'posts' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY IF NOT EXISTS "Users can delete their own post media"
+  ON storage.objects
+  FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'posts' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+-- Set up storage policies for profiles bucket
+CREATE POLICY IF NOT EXISTS "Users can upload their own profile photos"
+  ON storage.objects
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'profiles' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY IF NOT EXISTS "Profile photos are publicly viewable"
+  ON storage.objects
+  FOR SELECT
+  TO public
+  USING (bucket_id = 'profiles');
+
+CREATE POLICY IF NOT EXISTS "Users can update their own profile photos"
+  ON storage.objects
+  FOR UPDATE
+  TO authenticated
+  USING (bucket_id = 'profiles' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY IF NOT EXISTS "Users can delete their own profile photos"
+  ON storage.objects
+  FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'profiles' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+-- Final verification
+SELECT 'Storage buckets created successfully!' as status;
+            </div>
+            <button class="copy-btn" onclick="copySQL()">Copy SQL Script</button>
+        </div>
+
+        <div class="step">
+            <h3>🚀 Step 3: Run the Script</h3>
+            <ol>
+                <li>In the Supabase dashboard, click on <strong>SQL Editor</strong> in the left sidebar</li>
+                <li>Click <strong>New Query</strong></li>
+                <li>Paste the SQL script you copied above</li>
+                <li>Click <strong>Run</strong> to execute the script</li>
+            </ol>
+        </div>
+
+        <div class="step">
+            <h3>✅ Step 4: Test the Fix</h3>
+            <p>After running the script, test if it worked:</p>
+            <button class="button" onclick="testStorage()">Test Storage Setup</button>
+            <div id="testResult"></div>
+        </div>
+
+        <div class="step success">
+            <h3>🎉 What This Fixes</h3>
+            <ul>
+                <li>✅ Creates the missing storage buckets</li>
+                <li>✅ Sets up proper security policies</li>
+                <li>✅ Enables image uploads in your app</li>
+                <li>✅ Makes images publicly viewable</li>
+                <li>✅ Configures file size limits (10MB for posts, 5MB for profiles)</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function openSupabase() {
+            window.open('https://supabase.com/dashboard/project/vclgqaermjxdnchifmli', '_blank');
+        }
+
+        function copySQL() {
+            const sqlText = document.getElementById('sqlScript').textContent;
+            navigator.clipboard.writeText(sqlText).then(() => {
+                alert('SQL script copied to clipboard!');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = sqlText;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('SQL script copied to clipboard!');
+            });
+        }
+
+        async function testStorage() {
+            const resultDiv = document.getElementById('testResult');
+            resultDiv.innerHTML = '<p>Testing storage setup...</p>';
+            
+            try {
+                const response = await fetch('/api/test-storage', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        supabaseUrl: 'https://vclgqaermjxdnchifmli.supabase.co',
+                        supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjbGdxYWVybWp4ZG5jaGlmbWxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0MzM5OTQsImV4cCI6MjA2OTAwOTk5NH0.SN-rOT_Gz-QIlN6uB0jnbDxUmLBsP34Oqr-i4hfpwiw'
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    resultDiv.innerHTML = `<div class="success"><h4>✅ Test Results:</h4><pre>${JSON.stringify(result, null, 2)}</pre></div>`;
+                } else {
+                    resultDiv.innerHTML = '<div class="error"><h4>❌ Test Failed</h4><p>Please run the SQL script first, then try testing again.</p></div>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<div class="error"><h4>❌ Test Error</h4><p>Please run the SQL script in Supabase dashboard first.</p></div>';
+            }
+        }
+    </script>
+</body>
+</html>
+

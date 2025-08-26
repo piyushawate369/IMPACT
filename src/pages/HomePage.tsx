@@ -1,8 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { MessageCircle, Trash2, Filter, Plus } from 'lucide-react';
+import { MessageCircle, Trash2, Filter, Plus, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+// Utility function to test image URL
+const testImageUrl = async (url: string): Promise<boolean> => {
+  try {
+    const response = await fetch(url, { method: 'HEAD' })
+    const contentType = response.headers.get('content-type')
+    return response.ok && !!contentType && contentType.startsWith('image/')
+  } catch (error) {
+    console.error('Image URL test failed:', error)
+    return false
+  }
+}
+
+// Build a displayable public URL from either a full URL or a storage path
+const buildPublicUrl = (pathOrUrl: string | null | undefined): string => {
+  if (!pathOrUrl) return ''
+  try {
+    const trimmed = pathOrUrl.trim()
+    // If already absolute HTTP(S) URL, return as is
+    if (/^https?:\/\//i.test(trimmed)) return trimmed
+
+    // If it's a storage path (e.g., posts/user/file.png), prefix Supabase public object URL
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, '') || ''
+    const objectPath = trimmed.replace(/^\/*/, '') // remove leading slashes
+    if (baseUrl) {
+      return `${baseUrl}/storage/v1/object/public/${objectPath}`
+    }
+    return trimmed
+  } catch {
+    return pathOrUrl || ''
+  }
+}
+
+
 
 interface Post {
   id: string;
@@ -51,6 +85,31 @@ export default function HomePage() {
     fetchPosts();
   }, [selectedCategory]);
 
+  // Test existing image URLs and clean up corrupted ones
+  useEffect(() => {
+    const testExistingImages = async () => {
+      if (posts.length > 0) {
+        for (const post of posts) {
+          if (post.media_url && post.media_type === 'image') {
+            console.log('Testing existing image:', post.media_url);
+            const isValid = await testImageUrl(post.media_url);
+            console.log('Image valid:', isValid, 'for URL:', post.media_url);
+            
+            // If image is corrupted and user owns the post, offer to clean it up
+            if (!isValid && userProfile?.id === post.user_id) {
+              console.warn('Corrupted image detected for user-owned post:', post.id);
+              // Don't auto-delete, let user decide via UI
+            }
+          }
+        }
+      }
+    };
+
+    if (posts.length > 0) {
+      testExistingImages();
+    }
+  }, [posts, userProfile]);
+
   const fetchPosts = async () => {
     try {
       if (!isSupabaseConfigured) {
@@ -81,6 +140,12 @@ export default function HomePage() {
       const { data, error } = await query;
 
       if (error) throw error;
+      
+      console.log('Fetched posts:', data)
+      // Log posts with media
+      const postsWithMedia = data?.filter(post => post.media_url)
+      console.log('Posts with media:', postsWithMedia)
+      
       setPosts(data || []);
     } catch (error) {
       console.error('Network error fetching posts:', error);
@@ -281,23 +346,110 @@ export default function HomePage() {
               <div className="p-4">
                 <p className="text-gray-800 mb-4">{post.caption}</p>
                 
-                {post.media_url && (
-                  <div className="mb-4">
-                    {post.media_type === 'image' ? (
-                      <img
-                        src={post.media_url}
-                        alt="Post media"
-                        className="w-full h-64 object-cover rounded-lg"
-                      />
-                    ) : (
-                      <video
-                        src={post.media_url}
-                        controls
-                        className="w-full h-64 rounded-lg"
-                      />
-                    )}
-                  </div>
-                )}
+                {post.media_url && (() => {
+                  console.log('=== IMAGE DISPLAY DEBUG ===');
+                  const displayUrl = buildPublicUrl(post.media_url)
+                  console.log('Post ID:', post.id);
+                  console.log('Raw Media URL:', post.media_url);
+                  console.log('Display Media URL:', displayUrl);
+                  console.log('Media Type:', post.media_type);
+                  console.log('Full post object:', post);
+                  return (
+                    <div className="mb-4">
+                      {post.media_type === 'image' ? (
+                        <div className="relative">
+                          <img
+                            src={displayUrl}
+                            alt="Post media"
+                            className="w-full h-64 object-cover rounded-lg"
+                            onError={(e) => {
+                              console.error('=== IMAGE LOAD ERROR ===');
+                              console.error('Failed to load image:', displayUrl);
+                              console.error('Image element:', e.currentTarget);
+                              console.error('Post data:', post);
+                              console.error('Error event:', e);
+                              
+                              // Try to reload the image with a cache-busting parameter
+                              const img = e.currentTarget as HTMLImageElement;
+                              const originalSrc = img.src;
+                              const newSrc = originalSrc.includes('?') 
+                                ? `${originalSrc}&t=${Date.now()}` 
+                                : `${originalSrc}?t=${Date.now()}`;
+                              
+                              console.log('Retrying with cache-busting URL:', newSrc);
+                              img.src = newSrc;
+                              
+                              // If it still fails after retry, show fallback
+                              img.onerror = () => {
+                                console.error('Image retry also failed');
+                                img.style.display = 'none';
+                                const fallback = img.parentElement?.querySelector('.image-fallback');
+                                if (fallback) {
+                                  (fallback as HTMLElement).style.display = 'flex';
+                                }
+                              };
+                            }}
+                            onLoad={() => {
+                              console.log('=== IMAGE LOAD SUCCESS ===');
+                              console.log('Image loaded successfully:', displayUrl);
+                              console.log('Image element:', event?.target);
+                            }}
+                          />
+                          <div className="image-fallback hidden absolute inset-0 bg-gray-100 rounded-lg flex items-center justify-center">
+                            <div className="text-center">
+                              <div className="text-gray-400 text-4xl mb-2">📷</div>
+                              <p className="text-gray-500 text-sm">Image not available</p>
+                              <p className="text-gray-400 text-xs mt-1">URL: {displayUrl}</p>
+                              <div className="flex gap-2 justify-center mt-2">
+                                <button 
+                                  onClick={() => {
+                                    console.log('Testing image URL:', displayUrl);
+                                    window.open(displayUrl || '', '_blank');
+                                  }}
+                                  className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                                >
+                                  Test URL
+                                </button>
+                                <button 
+                                  onClick={async () => {
+                                    if (displayUrl) {
+                                      console.log('Retrying image load for:', displayUrl);
+                                      const isValid = await testImageUrl(displayUrl);
+                                      console.log('Image URL valid:', isValid);
+                                      if (isValid) {
+                                        // Force re-render by updating the image src
+                                        const imgElement = document.querySelector(`img[src="${displayUrl}"]`) as HTMLImageElement;
+                                        if (imgElement) {
+                                          imgElement.style.display = 'block';
+                                          imgElement.src = displayUrl + '?t=' + Date.now();
+                                        }
+                                      }
+                                    }
+                                  }}
+                                  className="px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600"
+                                >
+                                  <RefreshCw className="w-3 h-3 inline mr-1" />
+                                  Retry
+                                </button>
+
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <video
+                          src={displayUrl}
+                          controls
+                          className="w-full h-64 rounded-lg"
+                          onError={(e) => {
+                            console.error('Failed to load video:', displayUrl);
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Post Actions */}
                 <div className="flex items-center space-x-4 mb-4">
