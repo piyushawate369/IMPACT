@@ -31,7 +31,7 @@ export default function SignupPage() {
         alert(error.message)
       } else {
         setShowOtpVerification(true)
-        alert('Account created successfully! Please check your email for the verification code.')
+        alert('Account created successfully! Please complete authentication by clicking the verification link sent to your email.')
       }
     } catch (error) {
       alert('An error occurred during signup')
@@ -73,10 +73,10 @@ export default function SignupPage() {
               <Mail className="w-8 h-8 text-white" />
             </div>
             <h2 className="text-3xl font-bold text-gray-900">Verify Your Email</h2>
-            <p className="mt-2 text-gray-600">Enter the verification code sent to {email}</p>
+            <p className="mt-2 text-gray-600">Please confirm your email by clicking the link we sent to {email}</p>
           </div>
 
-          <form className="mt-8 space-y-6" onSubmit={handleOtpVerification}>
+          {/* <form className="mt-8 space-y-6" onSubmit={handleOtpVerification}>
             <div className="bg-white rounded-2xl shadow-lg p-8 space-y-6">
               <div>
                 <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-2">
@@ -113,7 +113,7 @@ export default function SignupPage() {
                 Back to signup
               </button>
             </div>
-          </form>
+          </form> */}
         </div>
       </div>
     )
